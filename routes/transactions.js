@@ -2,20 +2,30 @@ var express = require('express');
 const abi = require('./abi.json');
 const Web3 = require('web3');
 
-const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
-const { BatchWriteItemCommand } = require("@aws-sdk/client-dynamodb");
+const AWS = require('aws-sdk')
 
 const REGION = "us-east-1"; //e.g. "us-east-1"
+
+AWS.config.update({ 
+  accessKeyId: process.env.ACCESS_KEY,
+  secretAccessKey: process.env.SECRET_ACCESS,
+  region: REGION 
+})
+
+// const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
+// const { BatchWriteItemCommand } = require("@aws-sdk/client-dynamodb");
 
 var router = express.Router();
 
 const w3 = new Web3('https://cloudflare-eth.com');
 
-const ddbClient = new DynamoDBClient({ 
-  accessKeyId: 'AKIAR7DPNNDVTW6DPM6J',
-  secretAccessKey: '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',
-  region: REGION 
-});
+// const ddbClient = new DynamoDBClient({ 
+//   accessKeyId: '',
+//   secretAccessKey: '',
+//   region: REGION 
+// });
+
+const ddbClient = new AWS.DynamoDB({apiVersion: '2012-08-10'})
 
 const createTransactions = (acc) => {
   return new Promise(async(resolve, reject) => {
@@ -38,17 +48,26 @@ const createTransactions = (acc) => {
 
       console.log(records)
 
-      const params = {
-        RequestItems: {
-          transactions:records 
+      // await ddbClient.send(new BatchWriteItemCommand(params));
+      const chunkSize = 25
+      for (let i = 0; i < records.length; i+= chunkSize){
+        const chunk = records.slice(i, i+chunkSize);
+        const params = {
+          RequestItems: {
+            transactions:chunk 
+          }
         }
+        ddbClient.batchWriteItem(params, (err, data) => {
+          if (err !== null){
+            reject(err)
+          }
+          console.log(`Processed ${params.RequestItems.transactions} records`)
+          console.log(data)
+        })
       }
 
-      console.log(params)
-
-      await ddbClient.send(new BatchWriteItemCommand(params));
-
       resolve(records.length)
+
     }catch(err){
       console.log(err)
       reject(err)
