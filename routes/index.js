@@ -3,7 +3,7 @@ var router = express.Router();
 
 require('dotenv').config()
 
-/* GET home page. */
+/* GET default page. */
 router.get('/', function(req, res, next) {
   res.render('index', { title: 'Express' });
 });

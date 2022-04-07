@@ -15,10 +15,19 @@ const ddbClient = new DynamoDBClient({
   region: REGION 
 });
 
+/* The function indexes the data by fetching them from the contract */
 const createTransactions = (acc) => {
   return new Promise(async(resolve, reject) => {
+    // Initializing the contract
     let contract = new w3.eth.Contract(abi, acc)
     try{
+      /*
+         Getting all past details for transfer events
+         
+         Currently the provision is enabled for past events.
+         But the utility can be extended to listen and subscribe to 
+         new event using "events.Transfer" method instead of "getPastEvents".
+       */
       const transactions = await contract.getPastEvents('Transfer')
       let records = []
       transactions.forEach((data) => {
@@ -34,6 +43,8 @@ const createTransactions = (acc) => {
         })
       })
 
+      // Batching the records to load into database
+      // The count of 25 is arrived for batch due to the dynamodb limitations
       const chunkSize = 25
       for (let i = 0; i < records.length; i+= chunkSize){
         const chunk = records.slice(i, i+chunkSize);
@@ -43,6 +54,7 @@ const createTransactions = (acc) => {
           }
         }
         try{
+          // Loading the data into dynamodb
           const data = await ddbClient.send(new BatchWriteItemCommand(params))
           console.log(data)
         }catch(err){
@@ -57,6 +69,7 @@ const createTransactions = (acc) => {
   })
 }
 
+/* The function fetches the matching events from the indexed database */
 const getTransactions = (addr) => {
   return new Promise(async(resolve, reject) => {
     console.log(addr)
