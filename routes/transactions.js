@@ -2,30 +2,18 @@ var express = require('express');
 const abi = require('./abi.json');
 const Web3 = require('web3');
 
-const AWS = require('aws-sdk')
-
 const REGION = "us-east-1"; //e.g. "us-east-1"
 
-AWS.config.update({ 
-  accessKeyId: process.env.ACCESS_KEY,
-  secretAccessKey: process.env.SECRET_ACCESS,
-  region: REGION 
-})
-
-// const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
-// const { BatchWriteItemCommand } = require("@aws-sdk/client-dynamodb");
+const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
+const { BatchWriteItemCommand, QueryCommand } = require("@aws-sdk/client-dynamodb");
 
 var router = express.Router();
 
-const w3 = new Web3('https://cloudflare-eth.com');
+const w3 = new Web3(process.env.HTTP_PROVIDER);
 
-// const ddbClient = new DynamoDBClient({ 
-//   accessKeyId: '',
-//   secretAccessKey: '',
-//   region: REGION 
-// });
-
-const ddbClient = new AWS.DynamoDB({apiVersion: '2012-08-10'})
+const ddbClient = new DynamoDBClient({ 
+  region: REGION 
+});
 
 const createTransactions = (acc) => {
   return new Promise(async(resolve, reject) => {
@@ -46,28 +34,22 @@ const createTransactions = (acc) => {
         })
       })
 
-      console.log(records)
-
-      // await ddbClient.send(new BatchWriteItemCommand(params));
       const chunkSize = 25
       for (let i = 0; i < records.length; i+= chunkSize){
         const chunk = records.slice(i, i+chunkSize);
         const params = {
           RequestItems: {
-            transactions:chunk 
+            transaction:chunk 
           }
         }
-        ddbClient.batchWriteItem(params, (err, data) => {
-          if (err !== null){
-            reject(err)
-          }
-          console.log(`Processed ${params.RequestItems.transactions} records`)
+        try{
+          const data = await ddbClient.send(new BatchWriteItemCommand(params))
           console.log(data)
-        })
+        }catch(err){
+          console.log(err)
+        }
       }
-
-      resolve(records.length)
-
+      resolve(records)
     }catch(err){
       console.log(err)
       reject(err)
@@ -75,15 +57,41 @@ const createTransactions = (acc) => {
   })
 }
 
-/* GET transactions listing. */
-router.get('/', async function(req, res, next) {
-  let acc = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
-  let trans = await createTransactions(acc)
+const getTransactions = (addr) => {
+  return new Promise(async(resolve, reject) => {
+    console.log(addr)
+     try{
+        const params = {
+          ExpressionAttributeValues: {
+            ':addr': {S: addr}
+          },
+          TableName: "transaction",
+          KeyConditionExpression: 'from_addr = :addr',
+          ProjectionExpression: 'from_addr,to_addr,#value',
+          ExpressionAttributeNames: {"#value": "value"}
+        }
+        console.log(params)
+        const data = await ddbClient.send(new QueryCommand(params))
+        resolve(data)
+     }catch(err){
+        console.log(err)
+        reject(err)
+     }
+  })
+}
+
+/* Index the transactions */
+router.get('/:acc', async function(req, res, next) {
+  let trans = await createTransactions(req.params.acc)
   console.log(trans)
-  res.send(`Successfully processed ${trans} transactions`);
+  res.send(trans)
 });
 
-
+/* Fetch the transactions from index */
+router.get('/get/:fromAddr', async function(req, res, next) {
+  let records = await getTransactions(req.params.fromAddr)
+  res.send(records)
+})
 
 
 module.exports = router;
